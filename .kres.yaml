@@ -18,3 +18,7 @@ spec:
     linux-arm64:
       GOOS: linux
       GOARCH: arm64
+---
+kind: service.CodeCov
+spec:
+  enabled: false

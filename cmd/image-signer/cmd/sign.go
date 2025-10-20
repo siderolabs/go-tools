@@ -42,6 +42,7 @@ var signOptions struct {
 	Timeout                   time.Duration
 
 	DeviceFlow bool
+	DryRun     bool
 }
 
 func signImages(images []string) error {
@@ -67,6 +68,20 @@ func signImages(images []string) error {
 			continue
 		}
 
+		if signOptions.DryRun {
+			fmt.Println("Dry run enabled, skipping signing.")
+
+			if !signatureInfo.LegacySignature {
+				fmt.Println("Would sign legacy signature.")
+			}
+
+			if !signatureInfo.BundleSignature {
+				fmt.Println("Would sign bundle signature.")
+			}
+
+			continue
+		}
+
 		if err := signer.SignImage(image, signatureInfo.LegacySignature, signatureInfo.BundleSignature, signOptions.OIDCProvider, signOptions.DeviceFlow, signOptions.Timeout); err != nil {
 			return fmt.Errorf("failed to sign image %s: %w", image, err)
 		}
@@ -79,6 +94,7 @@ func signImages(images []string) error {
 
 func init() {
 	signCmd.Flags().BoolVarP(&signOptions.DeviceFlow, "device-flow", "d", false, "Use device flow for authentication")
+	signCmd.Flags().BoolVarP(&signOptions.DryRun, "dry-run", "", false, "Perform a dry run without actually signing the images")
 	signCmd.Flags().StringVarP(&signOptions.CertificateIdentityRegexp, "certificate-identity-regexp", "i", "@siderolabs\\.com$", "The identity regular expression to use for certificate verification")
 	signCmd.Flags().StringVarP(&signOptions.CertificateOIDCIssuer, "certificate-oidc-issuer", "o", "https://accounts.google.com", "The OIDC issuer URL to use for certificate verification")
 	signCmd.Flags().StringVarP(&signOptions.OIDCProvider, "oidc-provider", "p", "google", "The OIDC provider to use for authentication, supported values are: google, github, microsoft, Set to empty string to use the default HTML page for selection") //nolint:lll
