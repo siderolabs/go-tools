@@ -1,6 +1,6 @@
 # THIS FILE WAS AUTOMATICALLY GENERATED, PLEASE DO NOT EDIT.
 #
-# Generated on 2025-10-20T11:05:18Z by kres 46e133d.
+# Generated on 2025-10-29T04:49:24Z by kres 46e133d.
 
 # common variables
 
@@ -198,6 +198,20 @@ unit-tests:  ## Performs unit tests
 unit-tests-race:  ## Performs unit tests with race detection enabled.
 	@$(MAKE) target-$@
 
+.PHONY: $(ARTIFACTS)/image-signer-darwin-amd64
+$(ARTIFACTS)/image-signer-darwin-amd64:
+	@$(MAKE) local-image-signer-darwin-amd64 DEST=$(ARTIFACTS)
+
+.PHONY: image-signer-darwin-amd64
+image-signer-darwin-amd64: $(ARTIFACTS)/image-signer-darwin-amd64  ## Builds executable for image-signer-darwin-amd64.
+
+.PHONY: $(ARTIFACTS)/image-signer-darwin-arm64
+$(ARTIFACTS)/image-signer-darwin-arm64:
+	@$(MAKE) local-image-signer-darwin-arm64 DEST=$(ARTIFACTS)
+
+.PHONY: image-signer-darwin-arm64
+image-signer-darwin-arm64: $(ARTIFACTS)/image-signer-darwin-arm64  ## Builds executable for image-signer-darwin-arm64.
+
 .PHONY: $(ARTIFACTS)/image-signer-linux-amd64
 $(ARTIFACTS)/image-signer-linux-amd64:
 	@$(MAKE) local-image-signer-linux-amd64 DEST=$(ARTIFACTS)
@@ -213,7 +227,7 @@ $(ARTIFACTS)/image-signer-linux-arm64:
 image-signer-linux-arm64: $(ARTIFACTS)/image-signer-linux-arm64  ## Builds executable for image-signer-linux-arm64.
 
 .PHONY: image-signer
-image-signer: image-signer-linux-amd64 image-signer-linux-arm64  ## Builds executables for image-signer.
+image-signer: image-signer-darwin-amd64 image-signer-darwin-arm64 image-signer-linux-amd64 image-signer-linux-arm64  ## Builds executables for image-signer.
 
 .PHONY: lint-markdown
 lint-markdown:  ## Runs markdownlint.

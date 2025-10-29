@@ -2,7 +2,7 @@
 
 # THIS FILE WAS AUTOMATICALLY GENERATED, PLEASE DO NOT EDIT.
 #
-# Generated on 2025-10-20T11:05:18Z by kres 46e133d.
+# Generated on 2025-10-29T04:49:24Z by kres 46e133d.
 
 ARG TOOLCHAIN
 
@@ -119,6 +119,30 @@ COPY --from=unit-tests-run /src/coverage.txt /coverage-unit-tests.txt
 FROM scratch AS generate
 COPY --from=embed-abbrev-generate /src/internal/version internal/version
 
+# builds image-signer-darwin-amd64
+FROM base AS image-signer-darwin-amd64-build
+COPY --from=generate / /
+COPY --from=embed-generate / /
+WORKDIR /src/cmd/image-signer
+ARG GO_BUILDFLAGS
+ARG GO_LDFLAGS
+ARG VERSION_PKG="internal/version"
+ARG SHA
+ARG TAG
+RUN --mount=type=cache,target=/root/.cache/go-build,id=go-tools/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=go-tools/go/pkg GOARCH=amd64 GOOS=darwin go build ${GO_BUILDFLAGS} -ldflags "${GO_LDFLAGS} -X ${VERSION_PKG}.Name=image-signer -X ${VERSION_PKG}.SHA=${SHA} -X ${VERSION_PKG}.Tag=${TAG}" -o /image-signer-darwin-amd64
+
+# builds image-signer-darwin-arm64
+FROM base AS image-signer-darwin-arm64-build
+COPY --from=generate / /
+COPY --from=embed-generate / /
+WORKDIR /src/cmd/image-signer
+ARG GO_BUILDFLAGS
+ARG GO_LDFLAGS
+ARG VERSION_PKG="internal/version"
+ARG SHA
+ARG TAG
+RUN --mount=type=cache,target=/root/.cache/go-build,id=go-tools/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=go-tools/go/pkg GOARCH=arm64 GOOS=darwin go build ${GO_BUILDFLAGS} -ldflags "${GO_LDFLAGS} -X ${VERSION_PKG}.Name=image-signer -X ${VERSION_PKG}.SHA=${SHA} -X ${VERSION_PKG}.Tag=${TAG}" -o /image-signer-darwin-arm64
+
 # builds image-signer-linux-amd64
 FROM base AS image-signer-linux-amd64-build
 COPY --from=generate / /
@@ -143,6 +167,12 @@ ARG SHA
 ARG TAG
 RUN --mount=type=cache,target=/root/.cache/go-build,id=go-tools/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=go-tools/go/pkg GOARCH=arm64 GOOS=linux go build ${GO_BUILDFLAGS} -ldflags "${GO_LDFLAGS} -X ${VERSION_PKG}.Name=image-signer -X ${VERSION_PKG}.SHA=${SHA} -X ${VERSION_PKG}.Tag=${TAG}" -o /image-signer-linux-arm64
 
+FROM scratch AS image-signer-darwin-amd64
+COPY --from=image-signer-darwin-amd64-build /image-signer-darwin-amd64 /image-signer-darwin-amd64
+
+FROM scratch AS image-signer-darwin-arm64
+COPY --from=image-signer-darwin-arm64-build /image-signer-darwin-arm64 /image-signer-darwin-arm64
+
 FROM scratch AS image-signer-linux-amd64
 COPY --from=image-signer-linux-amd64-build /image-signer-linux-amd64 /image-signer-linux-amd64
 
@@ -152,6 +182,8 @@ COPY --from=image-signer-linux-arm64-build /image-signer-linux-arm64 /image-sign
 FROM image-signer-linux-${TARGETARCH} AS image-signer
 
 FROM scratch AS image-signer-all
+COPY --from=image-signer-darwin-amd64 / /
+COPY --from=image-signer-darwin-arm64 / /
 COPY --from=image-signer-linux-amd64 / /
 COPY --from=image-signer-linux-arm64 / /
 
