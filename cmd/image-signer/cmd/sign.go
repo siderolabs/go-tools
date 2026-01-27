@@ -14,6 +14,7 @@ import (
 	"github.com/sigstore/cosign/v3/pkg/cosign"
 	"github.com/spf13/cobra"
 
+	"github.com/siderolabs/go-tools/internal/pkg/auth"
 	"github.com/siderolabs/go-tools/pkg/signer"
 )
 
@@ -22,13 +23,7 @@ var signCmd = &cobra.Command{
 	Short: "Sign multiple container images using Cosign under the hood.",
 	Long: `Usage: image-signer sign <image1> <image2> [...]
 	Sign multiple container images using Cosign under the hood. If the image is already signed,
-	it will be skipped.
-
-	This is a wrapper around the Cosign API's so that we only need to authenticate once
-	to sign multiple images, subsequent signing operations will reuse the same authentication
-	context.
-
-	This explicitly follows "device" authentication flow, so this can be run in a headless environment too.`,
+	it will be skipped.`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return signImages(args)
@@ -36,10 +31,12 @@ var signCmd = &cobra.Command{
 }
 
 var signOptions struct {
-	CertificateIdentityRegexp string
-	CertificateOIDCIssuer     string
-	OIDCProvider              string
-	Timeout                   time.Duration
+	CertificateIdentity   string
+	CertificateOIDCIssuer string
+	OIDCProvider          string
+
+	ServiceAccount string
+	Timeout        time.Duration
 
 	DeviceFlow bool
 	DryRun     bool
@@ -49,21 +46,27 @@ func signImages(images []string) error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
 	defer cancel()
 
+	// Get OAuth token once for all images
+	token, err := auth.GetOAUTHToken(ctx, signOptions.ServiceAccount)
+	if err != nil {
+		return fmt.Errorf("failed to get OAuth token: %w", err)
+	}
+
 	for _, image := range images {
 		fmt.Printf("Processing image: %s\n", image)
 
-		signatureInfo, err := signer.VerifySignature(ctx, image, []cosign.Identity{
+		verified, err := signer.VerifySignature(ctx, image, []cosign.Identity{
 			{
-				Issuer:        signOptions.CertificateOIDCIssuer,
-				SubjectRegExp: signOptions.CertificateIdentityRegexp,
+				Issuer:  signOptions.CertificateOIDCIssuer,
+				Subject: signOptions.CertificateIdentity,
 			},
 		})
 		if err != nil {
 			return err
 		}
 
-		if signatureInfo.LegacySignature && signatureInfo.BundleSignature {
-			fmt.Println("Image is already signed with both legacy and bundled signatures, skipping signing.")
+		if verified {
+			fmt.Println("Image is already signed, skipping signing.")
 
 			continue
 		}
@@ -71,18 +74,10 @@ func signImages(images []string) error {
 		if signOptions.DryRun {
 			fmt.Println("Dry run enabled, skipping signing.")
 
-			if !signatureInfo.LegacySignature {
-				fmt.Println("Would sign legacy signature.")
-			}
-
-			if !signatureInfo.BundleSignature {
-				fmt.Println("Would sign bundle signature.")
-			}
-
 			continue
 		}
 
-		if err := signer.SignImage(image, signatureInfo.LegacySignature, signatureInfo.BundleSignature, signOptions.OIDCProvider, signOptions.DeviceFlow, signOptions.Timeout); err != nil {
+		if err := signer.SignImage(ctx, image, signOptions.OIDCProvider, signOptions.Timeout, token); err != nil {
 			return fmt.Errorf("failed to sign image %s: %w", image, err)
 		}
 
@@ -93,12 +88,11 @@ func signImages(images []string) error {
 }
 
 func init() {
-	signCmd.Flags().BoolVarP(&signOptions.DeviceFlow, "device-flow", "d", false, "Use device flow for authentication")
 	signCmd.Flags().BoolVarP(&signOptions.DryRun, "dry-run", "", false, "Perform a dry run without actually signing the images")
-	signCmd.Flags().StringVarP(&signOptions.CertificateIdentityRegexp, "certificate-identity-regexp", "i", "@siderolabs\\.com$", "The identity regular expression to use for certificate verification")
+	signCmd.Flags().StringVarP(&signOptions.CertificateIdentity, "certificate-identity", "i", "releasemgr-svc@talos-production.iam.gserviceaccount.com", "The identity to use for certificate verification") //nolint:lll
 	signCmd.Flags().StringVarP(&signOptions.CertificateOIDCIssuer, "certificate-oidc-issuer", "o", "https://accounts.google.com", "The OIDC issuer URL to use for certificate verification")
-	signCmd.Flags().StringVarP(&signOptions.OIDCProvider, "oidc-provider", "p", "google", "The OIDC provider to use for authentication, supported values are: google, github, microsoft, Set to empty string to use the default HTML page for selection") //nolint:lll
 	signCmd.Flags().DurationVarP(&signOptions.Timeout, "timeout", "t", 5*time.Minute, "The timeout duration for signing operations")
+	signCmd.Flags().StringVarP(&signOptions.ServiceAccount, "service-account", "s", "releasemgr-svc@talos-production.iam.gserviceaccount.com", "The Google Cloud service account to use for authentication") //nolint:lll
 
 	rootCmd.AddCommand(signCmd)
 }

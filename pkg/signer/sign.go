@@ -5,6 +5,7 @@
 package signer
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -13,15 +14,10 @@ import (
 	"github.com/sigstore/cosign/v3/pkg/cosign"
 )
 
-func SignImage(image string, legacySigned, bundleSigned bool, provider string, deviceFlow bool, timeout time.Duration) error {
+func SignImage(ctx context.Context, image string, provider string, timeout time.Duration, token string) error {
 	trustedRoot, err := cosign.TrustedRoot()
 	if err != nil {
 		return fmt.Errorf("error getting trusted roots: %w", err)
-	}
-
-	token, err := getToken(provider, deviceFlow)()
-	if err != nil {
-		return fmt.Errorf("error getting OIDC token: %w", err)
 	}
 
 	keyOptions := options.KeyOpts{
@@ -33,6 +29,7 @@ func SignImage(image string, legacySigned, bundleSigned bool, provider string, d
 		TrustedMaterial:  trustedRoot,
 		IDToken:          token,
 		FulcioAuthFlow:   "token",
+		NewBundleFormat:  true,
 	}
 
 	signingOptions := options.SignOptions{
@@ -48,30 +45,18 @@ func SignImage(image string, legacySigned, bundleSigned bool, provider string, d
 			Issuer:   options.DefaultOIDCIssuerURL,
 			ClientID: SigstoreOIDCClientID,
 		},
+		NewBundleFormat:  true,
+		UseSigningConfig: true,
 	}
 
 	rootOptions := &options.RootOptions{
 		Timeout: timeout,
 	}
 
-	if !legacySigned {
-		fmt.Printf("Signing legacy signature for image: %s\n", image)
+	fmt.Printf("Signing bundled signature for image: %s\n", image)
 
-		if err := sign.SignCmd(rootOptions, keyOptions, signingOptions, []string{image}); err != nil {
-			return fmt.Errorf("error signing legacy signature for image %s: %w", image, err)
-		}
-	}
-
-	if !bundleSigned {
-		keyOptions.NewBundleFormat = true
-		signingOptions.NewBundleFormat = true
-		signingOptions.UseSigningConfig = true
-
-		fmt.Printf("Signing bundled signature for image: %s\n", image)
-
-		if err := sign.SignCmd(rootOptions, keyOptions, signingOptions, []string{image}); err != nil {
-			return fmt.Errorf("error signing bundled signature for image %s: %w", image, err)
-		}
+	if err := sign.SignCmd(ctx, rootOptions, keyOptions, signingOptions, []string{image}); err != nil {
+		return fmt.Errorf("error signing bundled signature for image %s: %w", image, err)
 	}
 
 	return nil
