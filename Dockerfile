@@ -1,22 +1,22 @@
-# syntax = docker/dockerfile-upstream:1.19.0-labs
+# syntax = docker/dockerfile-upstream:1.23.0-labs
 
 # THIS FILE WAS AUTOMATICALLY GENERATED, PLEASE DO NOT EDIT.
 #
-# Generated on 2025-10-29T04:49:24Z by kres 46e133d.
+# Generated on 2026-04-12T06:34:14Z by kres b6d29bf.
 
-ARG TOOLCHAIN
+ARG TOOLCHAIN=scratch
 
-FROM ghcr.io/siderolabs/ca-certificates:v1.11.0 AS image-ca-certificates
+FROM ghcr.io/siderolabs/ca-certificates:v1.12.0 AS image-ca-certificates
 
-FROM ghcr.io/siderolabs/fhs:v1.11.0 AS image-fhs
+FROM ghcr.io/siderolabs/fhs:v1.12.0 AS image-fhs
 
 # runs markdownlint
-FROM docker.io/oven/bun:1.3.0-alpine AS lint-markdown
+FROM docker.io/oven/bun:1.3.11-alpine AS lint-markdown
 WORKDIR /src
-RUN bun i markdownlint-cli@0.45.0 sentences-per-line@0.3.0
+RUN bun i markdownlint-cli@0.48.0 sentences-per-line@0.5.2
 COPY .markdownlint.json .
 COPY ./README.md ./README.md
-RUN bunx markdownlint --ignore "CHANGELOG.md" --ignore "**/node_modules/**" --ignore '**/hack/chglog/**' --rules sentences-per-line .
+RUN bunx markdownlint --ignore "CHANGELOG.md" --ignore "**/node_modules/**" --ignore '**/hack/chglog/**' --rules markdownlint-sentences-per-line .
 
 # base toolchain image
 FROM --platform=${BUILDPLATFORM} ${TOOLCHAIN} AS toolchain
@@ -40,6 +40,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build,id=go-tools/root/.cache/go-b
 	&& mv /go/bin/golangci-lint /bin/golangci-lint
 RUN --mount=type=cache,target=/root/.cache/go-build,id=go-tools/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=go-tools/go/pkg go install golang.org/x/vuln/cmd/govulncheck@latest \
 	&& mv /go/bin/govulncheck /bin/govulncheck
+ARG DIS_VULNCHECK_VERSION
+RUN --mount=type=cache,target=/root/.cache/go-build,id=go-tools/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=go-tools/go/pkg go install github.com/shanduur/dis-vulncheck@${DIS_VULNCHECK_VERSION} \
+	&& mv /go/bin/dis-vulncheck /bin/dis-vulncheck
 ARG GOFUMPT_VERSION
 RUN go install mvdan.cc/gofumpt@${GOFUMPT_VERSION} \
 	&& mv /go/bin/gofumpt /bin/gofumpt
@@ -87,8 +90,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build,id=go-tools/root/.cache/go-b
 # runs govulncheck
 FROM base AS lint-govulncheck
 WORKDIR /src
-COPY --chmod=0755 hack/govulncheck.sh ./hack/govulncheck.sh
-RUN --mount=type=cache,target=/root/.cache/go-build,id=go-tools/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=go-tools/go/pkg ./hack/govulncheck.sh ./...
+RUN --mount=type=cache,target=/root/.cache/go-build,id=go-tools/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=go-tools/go/pkg dis-vulncheck -tool=false ./...
 
 # runs unit-tests with race detector
 FROM base AS unit-tests-race
@@ -118,6 +120,54 @@ COPY --from=unit-tests-run /src/coverage.txt /coverage-unit-tests.txt
 # cleaned up specs and compiled versions
 FROM scratch AS generate
 COPY --from=embed-abbrev-generate /src/internal/version internal/version
+
+# builds extensions-duplicate-finder-darwin-amd64
+FROM base AS extensions-duplicate-finder-darwin-amd64-build
+COPY --from=generate / /
+COPY --from=embed-generate / /
+WORKDIR /src/cmd/extensions-duplicate-finder
+ARG GO_BUILDFLAGS
+ARG GO_LDFLAGS
+ARG VERSION_PKG="internal/version"
+ARG SHA
+ARG TAG
+RUN --mount=type=cache,target=/root/.cache/go-build,id=go-tools/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=go-tools/go/pkg GOARCH=amd64 GOOS=darwin go build ${GO_BUILDFLAGS} -ldflags "${GO_LDFLAGS} -X ${VERSION_PKG}.Name=extensions-duplicate-finder -X ${VERSION_PKG}.SHA=${SHA} -X ${VERSION_PKG}.Tag=${TAG}" -o /extensions-duplicate-finder-darwin-amd64
+
+# builds extensions-duplicate-finder-darwin-arm64
+FROM base AS extensions-duplicate-finder-darwin-arm64-build
+COPY --from=generate / /
+COPY --from=embed-generate / /
+WORKDIR /src/cmd/extensions-duplicate-finder
+ARG GO_BUILDFLAGS
+ARG GO_LDFLAGS
+ARG VERSION_PKG="internal/version"
+ARG SHA
+ARG TAG
+RUN --mount=type=cache,target=/root/.cache/go-build,id=go-tools/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=go-tools/go/pkg GOARCH=arm64 GOOS=darwin go build ${GO_BUILDFLAGS} -ldflags "${GO_LDFLAGS} -X ${VERSION_PKG}.Name=extensions-duplicate-finder -X ${VERSION_PKG}.SHA=${SHA} -X ${VERSION_PKG}.Tag=${TAG}" -o /extensions-duplicate-finder-darwin-arm64
+
+# builds extensions-duplicate-finder-linux-amd64
+FROM base AS extensions-duplicate-finder-linux-amd64-build
+COPY --from=generate / /
+COPY --from=embed-generate / /
+WORKDIR /src/cmd/extensions-duplicate-finder
+ARG GO_BUILDFLAGS
+ARG GO_LDFLAGS
+ARG VERSION_PKG="internal/version"
+ARG SHA
+ARG TAG
+RUN --mount=type=cache,target=/root/.cache/go-build,id=go-tools/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=go-tools/go/pkg GOARCH=amd64 GOOS=linux go build ${GO_BUILDFLAGS} -ldflags "${GO_LDFLAGS} -X ${VERSION_PKG}.Name=extensions-duplicate-finder -X ${VERSION_PKG}.SHA=${SHA} -X ${VERSION_PKG}.Tag=${TAG}" -o /extensions-duplicate-finder-linux-amd64
+
+# builds extensions-duplicate-finder-linux-arm64
+FROM base AS extensions-duplicate-finder-linux-arm64-build
+COPY --from=generate / /
+COPY --from=embed-generate / /
+WORKDIR /src/cmd/extensions-duplicate-finder
+ARG GO_BUILDFLAGS
+ARG GO_LDFLAGS
+ARG VERSION_PKG="internal/version"
+ARG SHA
+ARG TAG
+RUN --mount=type=cache,target=/root/.cache/go-build,id=go-tools/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=go-tools/go/pkg GOARCH=arm64 GOOS=linux go build ${GO_BUILDFLAGS} -ldflags "${GO_LDFLAGS} -X ${VERSION_PKG}.Name=extensions-duplicate-finder -X ${VERSION_PKG}.SHA=${SHA} -X ${VERSION_PKG}.Tag=${TAG}" -o /extensions-duplicate-finder-linux-arm64
 
 # builds image-signer-darwin-amd64
 FROM base AS image-signer-darwin-amd64-build
@@ -167,6 +217,18 @@ ARG SHA
 ARG TAG
 RUN --mount=type=cache,target=/root/.cache/go-build,id=go-tools/root/.cache/go-build --mount=type=cache,target=/go/pkg,id=go-tools/go/pkg GOARCH=arm64 GOOS=linux go build ${GO_BUILDFLAGS} -ldflags "${GO_LDFLAGS} -X ${VERSION_PKG}.Name=image-signer -X ${VERSION_PKG}.SHA=${SHA} -X ${VERSION_PKG}.Tag=${TAG}" -o /image-signer-linux-arm64
 
+FROM scratch AS extensions-duplicate-finder-darwin-amd64
+COPY --from=extensions-duplicate-finder-darwin-amd64-build /extensions-duplicate-finder-darwin-amd64 /extensions-duplicate-finder-darwin-amd64
+
+FROM scratch AS extensions-duplicate-finder-darwin-arm64
+COPY --from=extensions-duplicate-finder-darwin-arm64-build /extensions-duplicate-finder-darwin-arm64 /extensions-duplicate-finder-darwin-arm64
+
+FROM scratch AS extensions-duplicate-finder-linux-amd64
+COPY --from=extensions-duplicate-finder-linux-amd64-build /extensions-duplicate-finder-linux-amd64 /extensions-duplicate-finder-linux-amd64
+
+FROM scratch AS extensions-duplicate-finder-linux-arm64
+COPY --from=extensions-duplicate-finder-linux-arm64-build /extensions-duplicate-finder-linux-arm64 /extensions-duplicate-finder-linux-arm64
+
 FROM scratch AS image-signer-darwin-amd64
 COPY --from=image-signer-darwin-amd64-build /image-signer-darwin-amd64 /image-signer-darwin-amd64
 
@@ -179,6 +241,14 @@ COPY --from=image-signer-linux-amd64-build /image-signer-linux-amd64 /image-sign
 FROM scratch AS image-signer-linux-arm64
 COPY --from=image-signer-linux-arm64-build /image-signer-linux-arm64 /image-signer-linux-arm64
 
+FROM extensions-duplicate-finder-linux-${TARGETARCH} AS extensions-duplicate-finder
+
+FROM scratch AS extensions-duplicate-finder-all
+COPY --from=extensions-duplicate-finder-darwin-amd64 / /
+COPY --from=extensions-duplicate-finder-darwin-arm64 / /
+COPY --from=extensions-duplicate-finder-linux-amd64 / /
+COPY --from=extensions-duplicate-finder-linux-arm64 / /
+
 FROM image-signer-linux-${TARGETARCH} AS image-signer
 
 FROM scratch AS image-signer-all
@@ -186,6 +256,14 @@ COPY --from=image-signer-darwin-amd64 / /
 COPY --from=image-signer-darwin-arm64 / /
 COPY --from=image-signer-linux-amd64 / /
 COPY --from=image-signer-linux-arm64 / /
+
+FROM scratch AS image-extensions-duplicate-finder
+ARG TARGETARCH
+COPY --from=extensions-duplicate-finder extensions-duplicate-finder-linux-${TARGETARCH} /extensions-duplicate-finder
+COPY --from=image-fhs / /
+COPY --from=image-ca-certificates / /
+LABEL org.opencontainers.image.source=https://github.com/siderolabs/go-tools
+ENTRYPOINT ["/extensions-duplicate-finder"]
 
 FROM scratch AS image-image-signer
 ARG TARGETARCH
