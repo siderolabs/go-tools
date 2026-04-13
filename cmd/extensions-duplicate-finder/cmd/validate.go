@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/name"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/spf13/cobra"
 	"go.yaml.in/yaml/v4"
@@ -36,12 +37,14 @@ var validateFlags struct {
 	image              string
 	exceptions         string
 	generateExceptions string
+	platform           string
 }
 
 func init() {
 	validateCmd.Flags().StringVar(&validateFlags.image, "image", "", "The image reference of the extension image manifest to validate.")
 	validateCmd.Flags().StringVar(&validateFlags.exceptions, "exceptions", "", "Path to exceptions.yaml file listing allowed duplicate files per extension.")
 	validateCmd.Flags().StringVar(&validateFlags.generateExceptions, "generate-exceptions", "", "Write all current duplicates to the given path as exceptions.yaml and exit without error.")
+	validateCmd.Flags().StringVar(&validateFlags.platform, "platform", "linux/amd64", "The platform to use when fetching images (e.g., linux/amd64).")
 
 	rootCmd.AddCommand(validateCmd)
 }
@@ -92,7 +95,12 @@ func validate() error {
 		return fmt.Errorf("failed to parse image reference: %w", err)
 	}
 
-	img, err := remote.Image(ref)
+	platform, err := v1.ParsePlatform(validateFlags.platform)
+	if err != nil {
+		return fmt.Errorf("failed to parse platform: %w", err)
+	}
+
+	img, err := remote.Image(ref, remote.WithPlatform(*platform))
 	if err != nil {
 		return fmt.Errorf("failed to fetch image: %w", err)
 	}
@@ -150,9 +158,18 @@ func validate() error {
 			return fmt.Errorf("failed to parse image reference %q: %w", line, err)
 		}
 
-		extImg, err := remote.Image(ref)
+		extImg, err := remote.Image(ref, remote.WithPlatform(*platform))
 		if err != nil {
 			return fmt.Errorf("failed to fetch image %q: %w", line, err)
+		}
+
+		cf, err := extImg.ConfigFile()
+		if err != nil {
+			return fmt.Errorf("failed to get config for %q: %w", line, err)
+		}
+
+		if cf.Architecture != platform.Architecture || cf.OS != platform.OS {
+			return fmt.Errorf("%s: platform %s/%s does not match requested %s", line, cf.OS, cf.Architecture, validateFlags.platform)
 		}
 
 		extLayers, err := extImg.Layers()
@@ -278,30 +295,55 @@ func validate() error {
 		}
 	}
 
-	// Filter out excepted duplicates.
-	var violations []string
+	// Filter out excepted duplicates, grouping remaining violations by owner set.
+	violationGroups := map[string]*exceptionEntry{}
 
 	for file, owners := range duplicates {
 		if exceptions.allows(file, owners) {
 			continue
 		}
 
-		violations = append(violations, file)
+		key := strings.Join(sortedCopy(owners), "\x00")
+
+		entry, ok := violationGroups[key]
+		if !ok {
+			entry = &exceptionEntry{Images: sortedCopy(owners)}
+			violationGroups[key] = entry
+		}
+
+		entry.Files = append(entry.Files, file)
 	}
 
-	if len(violations) == 0 {
+	if len(violationGroups) == 0 {
 		fmt.Println("No duplicate files found.")
 
 		return nil
 	}
 
+	var violations []exceptionEntry
+
+	for _, entry := range violationGroups {
+		slices.Sort(entry.Files)
+		violations = append(violations, *entry)
+	}
+
+	slices.SortFunc(violations, func(a, b exceptionEntry) int {
+		return strings.Compare(a.Images[0], b.Images[0])
+	})
+
 	fmt.Println("Duplicate files found:")
 
-	for _, file := range violations {
-		fmt.Printf("- %s:\n", file)
+	for _, entry := range violations {
+		fmt.Println("- images:")
 
-		for _, owner := range fileOwners[file] {
-			fmt.Printf("  - %s\n", owner)
+		for _, img := range entry.Images {
+			fmt.Printf("    - %s\n", img)
+		}
+
+		fmt.Println("  files:")
+
+		for _, file := range entry.Files {
+			fmt.Printf("    - %s\n", file)
 		}
 	}
 
