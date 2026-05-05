@@ -34,7 +34,9 @@ func VerifySignature(ctx context.Context, image string, identities []cosign.Iden
 		return bundleVerified, nil
 	}
 
-	var noAttestationFoundErr *cosign.ErrNoMatchingAttestations
+	if _, ok := errors.AsType[*cosign.ErrNoMatchingAttestations](err); ok { //nolint:errcheck // AsType returns the matched error value; only ok is needed here.
+		return false, nil
+	}
 
-	return !errors.As(err, &noAttestationFoundErr), nil
+	return false, fmt.Errorf("error verifying signature for image %s: %w", image, err)
 }
